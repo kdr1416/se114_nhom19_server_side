@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: ${SUPABASE_URL}
+    username: postgres
+    password: ${SUPABASE_PASSWORD}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 2
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+
+app:
+  jwt:
+    secret: 0570b4b2eb2a0e303b2b7e4cd82a4c2dfb3f5b1f82ade957384e97e219b187d2
+    expiration: 86400000

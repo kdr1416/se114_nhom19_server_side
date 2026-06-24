@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cafe Manager Chat Client</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- SockJS and STOMP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg-dark: #0f172a;
+            --surface: #1e293b;
+            --border: #334155;
+            --text-main: #f8fafc;
+            --text-mute: #94a3b8;
+            --success: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(16px);
+            border: 1px border solid var(--border);
+            border-radius: 24px;
+            padding: 30px;
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.5), 0 8px 10px -6px rgb(0 0 0 / 0.5);
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+        }
+
+        .left-panel {
+            border-right: 1px solid var(--border);
+            padding-right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            height: 550px;
+        }
+
+        h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 10px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        label {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-mute);
+        }
+
+        input, select, textarea {
+            background-color: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 10px 14px;
+            color: var(--text-main);
+            outline: none;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+        }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-disconnected {
+            background-color: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .badge-connected {
+            background-color: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        /* Chat view */
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+
+        .messages-container {
+            flex-grow: 1;
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 10px 14px;
+            border-radius: 16px;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .message.received {
+            background-color: var(--surface);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message.sent {
+            background-color: var(--primary);
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message-sender {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-mute);
+        }
+
+        .message.sent .message-sender {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .message-time {
+            font-size: 0.7rem;
+            color: var(--text-mute);
+            align-self: flex-end;
+        }
+
+        .message.sent .message-time {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .chat-input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input-area input {
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Configuration & Auth Panel -->
+        <div class="left-panel">
+            <h2>Kết nối API</h2>
+            
+            <div class="form-group">
+                <label for="username">Tên đăng nhập</label>
+                <input type="text" id="username" value="staff">
+            </div>
+
+            <div class="form-group">
+                <label for="password">Mật khẩu</label>
+                <input type="password" id="password" value="123456">
+            </div>
+
+            <button id="btn-login" onclick="login()">1. Đăng nhập lấy Token</button>
+
+            <div class="form-group" style="margin-top: 10px;">
+                <label for="token">JWT Token</label>
+                <textarea id="token" rows="3" placeholder="Token sẽ tự động điền khi đăng nhập..." style="resize: none; font-size: 0.8rem;"></textarea>
+            </div>
+
+            <button id="btn-connect" onclick="connect()" disabled>2. Kết nối WebSocket</button>
+
+            <div class="form-group">
+                <label>Trạng thái</label>
+                <div id="status-badge" class="badge badge-disconnected">Chưa kết nối</div>
+            </div>
+
+            <div class="form-group">
+                <label for="roomId">Room ID đăng ký</label>
+                <input type="number" id="roomId" value="4">
+            </div>
+        </div>
+
+        <!-- Chat Area Panel -->
+        <div class="right-panel">
+            <div class="chat-header">
+                <div>
+                    <h2 id="chat-title">Phòng Trò Chuyện</h2>
+                    <p style="font-size: 0.8rem; color: var(--text-mute);" id="chat-subtitle">Chưa kết nối phòng</p>
+                </div>
+            </div>
+
+            <div class="messages-container" id="messages">
+                <div style="text-align: center; color: var(--text-mute); font-size: 0.9rem; margin-top: auto; margin-bottom: auto;">
+                    Đăng nhập và kết nối WebSocket để bắt đầu chat real-time
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <input type="text" id="message-input" placeholder="Nhập tin nhắn..." disabled onkeypress="handleKeyPress(event)">
+                <button id="btn-send" onclick="sendMessage()" disabled>Gửi</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let stompClient = null;
+        let currentUserId = null;
+        let token = "";
+
+        async function login() {
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+            
+            try {
+                const response = await fetch("http://localhost:8080/api/v1/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password })
+                });
+
+                if (!response.ok) throw new Error("Sai tên đăng nhập hoặc mật khẩu");
+                
+                const data = await response.json();
+                token = data.token;
+                document.getElementById("token").value = token;
+                
+                // Parse JWT payload to get user ID
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                }).join(''));
+                
+                const payload = JSON.parse(jsonPayload);
+                currentUserId = payload.userId;
+
+                alert("Đăng nhập thành công! User ID: " + currentUserId);
+                document.getElementById("btn-connect").disabled = false;
+            } catch (err) {
+                alert("Lỗi đăng nhập: " + err.message);
+            }
+        }
+
+        function connect() {
+            if (!token) return;
+
+            const badge = document.getElementById("status-badge");
+            badge.className = "badge badge-disconnected";
+            badge.innerText = "Đang kết nối...";
+
+            // Connect using SockJS with JWT Token query parameter
+            const socket = new SockJS('http://localhost:8080/ws?token=' + encodeURIComponent(token));
+            stompClient = Stomp.over(socket);
+            
+            stompClient.connect({}, function (frame) {
+                badge.className = "badge badge-connected";
+                badge.innerText = "Đã kết nối";
+
+                document.getElementById("message-input").disabled = false;
+                document.getElementById("btn-send").disabled = false;
+
+                const roomId = document.getElementById("roomId").value;
+                document.getElementById("chat-subtitle").innerText = "Đang ở Room ID: " + roomId;
+                document.getElementById("messages").innerHTML = "";
+
+                // Fetch message history from REST API
+                loadHistory(roomId);
+
+                // Subscribe to topic
+                stompClient.subscribe('/topic/chat/' + roomId, function (messageOutput) {
+                    const message = JSON.parse(messageOutput.body);
+                    showMessage(message);
+                });
+
+            }, function (error) {
+                badge.className = "badge badge-disconnected";
+                badge.innerText = "Lỗi kết nối";
+                alert("Lỗi WebSocket STOMP: " + error);
+            });
+        }
+
+        async function loadHistory(roomId) {
+            try {
+                const response = await fetch(`http://localhost:8080/api/v1/chat/rooms/${roomId}/messages?page=0&size=20`, {
+                    headers: { "Authorization": "Bearer " + token }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    // Messages are desc in API, reverse to show in cron order
+                    const messages = data.content.reverse();
+                    messages.forEach(msg => showMessage(msg));
+                }
+            } catch (err) {
+                console.error("Lỗi lấy lịch sử:", err);
+            }
+        }
+
+        function showMessage(message) {
+            const container = document.getElementById("messages");
+            const isMe = message.senderId === currentUserId;
+            
+            const messageEl = document.createElement("div");
+            messageEl.className = `message ${isMe ? 'sent' : 'received'}`;
+            
+            const timeStr = new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            messageEl.innerHTML = `
+                <span class="message-sender">${isMe ? 'Bạn' : message.senderName}</span>
+                <span>${escapeHtml(message.content)}</span>
+                <span class="message-time">${timeStr}</span>
+            `;
+            
+            container.appendChild(messageEl);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function sendMessage() {
+            const input = document.getElementById("message-input");
+            const content = input.value.trim();
+            const roomId = document.getElementById("roomId").value;
+
+            if (content && stompClient) {
+                stompClient.send(`/app/chat/${roomId}/send`, {}, JSON.stringify({ content }));
+                input.value = "";
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
