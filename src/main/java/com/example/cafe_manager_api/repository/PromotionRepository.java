@@ -9,4 +9,5 @@ import java.util.Optional;
 public interface PromotionRepository extends JpaRepository<PromotionEntity, Integer> {
     Optional<PromotionEntity> findByCodeAndIsActiveTrue(String code);
     Optional<PromotionEntity> findByCode(String code);
+    long countByIsActiveTrue();
 }

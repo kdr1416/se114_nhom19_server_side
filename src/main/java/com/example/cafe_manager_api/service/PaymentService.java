@@ -154,4 +154,16 @@ public class PaymentService {
         return paymentRepository.findByOrderId(orderId)
                 .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy hóa đơn thanh toán cho đơn hàng ID: " + orderId));
     }
+
+    @Transactional(readOnly = true)
+    public Double getRevenueInRange(Long start, Long end) {
+        Double revenue = paymentRepository.getRevenueInRange(start, end);
+        return revenue != null ? revenue : 0.0;
+    }
+
+    @Transactional(readOnly = true)
+    public Long countPaymentsInRange(Long start, Long end) {
+        Long count = paymentRepository.countPaymentsInRange(start, end);
+        return count != null ? count : 0L;
+    }
 }
