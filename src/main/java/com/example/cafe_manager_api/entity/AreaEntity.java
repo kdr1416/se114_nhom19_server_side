@@ -24,6 +24,9 @@ public class AreaEntity {
     @Column(name = "prefix")
     private String prefix;
 
+    @Column(name = "description")
+    private String description;
+
     @Column(name = "created_at")
     private Long createdAt;
 }

@@ -8,4 +8,6 @@ import java.util.List;
 @Repository
 public interface AttendanceRepository extends JpaRepository<AttendanceEntity, Integer> {
     List<AttendanceEntity> findByUserId(Integer userId);
+    List<AttendanceEntity> findByShiftId(Integer shiftId);
+    AttendanceEntity findByShiftIdAndUserId(Integer shiftId, Integer userId);
 }
