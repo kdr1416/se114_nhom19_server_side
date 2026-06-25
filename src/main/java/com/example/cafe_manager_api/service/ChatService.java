@@ -36,6 +36,12 @@ public class ChatService {
     private UserRepository userRepository;
 
     @Autowired
+    private ShiftRepository shiftRepository;
+
+    @Autowired
+    private ShiftAssignmentRepository shiftAssignmentRepository;
+
+    @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
     @Transactional(readOnly = true)
@@ -57,7 +63,13 @@ public class ChatService {
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<ChatMessageEntity> messagesPage = chatMessageRepository.findByRoomId(roomId, pageRequest);
 
-        return messagesPage.map(this::mapToChatMessageResponse);
+        return messagesPage.map(msg -> {
+            ChatMessageResponse resp = this.mapToChatMessageResponse(msg);
+            boolean isRead = msg.getSenderId().equals(user.getUserId()) ||
+                    chatReadRepository.findByMessageIdAndUserId(msg.getMessageId(), user.getUserId()).isPresent();
+            resp.setIsRead(isRead);
+            return resp;
+        });
     }
 
     @Transactional
@@ -153,6 +165,162 @@ public class ChatService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "You are not a participant in this chat room"));
 
         chatReadRepository.markAllAsRead(roomId, user.getUserId(), System.currentTimeMillis());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ChatRoomResponse> getRoomsWithDetails(String username) {
+        UserEntity user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+
+        List<ChatRoomEntity> rooms = chatRoomRepository.findRoomsByParticipantUserId(user.getUserId());
+
+        return rooms.stream().map(room -> {
+            ChatMessageEntity latest = chatMessageRepository.findTopByRoomIdOrderByCreatedAtDesc(room.getRoomId());
+            String lastMessage = null;
+            Long lastMessageAt = null;
+            if (latest != null) {
+                lastMessage = latest.getContent();
+                lastMessageAt = latest.getCreatedAt();
+            }
+
+            int unread = chatReadRepository.countUnreadByRoomAndUser(room.getRoomId(), user.getUserId());
+            long participantCount = chatParticipantRepository.countByRoomId(room.getRoomId());
+
+            return ChatRoomResponse.builder()
+                    .roomId(room.getRoomId())
+                    .roomName(room.getRoomName())
+                    .roomType(room.getRoomType())
+                    .shiftId(room.getShiftId())
+                    .lastMessage(lastMessage)
+                    .lastMessageAt(lastMessageAt)
+                    .unreadCount(unread)
+                    .participantCount((int) participantCount)
+                    .isActive(room.getIsActive())
+                    .build();
+        }).collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public int getTotalUnreadCount(String username) {
+        UserEntity user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+        return chatReadRepository.countTotalUnreadByUser(user.getUserId());
+    }
+
+    @Transactional
+    public ChatRoomResponse syncShiftChatRoom(Integer shiftId, String username) {
+        UserEntity user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+
+        ShiftEntity shift = shiftRepository.findById(shiftId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Shift not found"));
+
+        Optional<ChatRoomEntity> existingRoomOpt = chatRoomRepository.findByShiftId(shiftId);
+        int roomId;
+        long now = System.currentTimeMillis();
+
+        if (existingRoomOpt.isEmpty()) {
+            if ("CANCELLED".equalsIgnoreCase(shift.getStatus())) {
+                return null; // Don't create chat room for cancelled shifts
+            }
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.ROOT);
+            String dateStr = sdf.format(new java.util.Date(shift.getShiftDate()));
+            String roomName = shift.getShiftName() + " - " + dateStr + " (" + shift.getStartTime() + "-" + shift.getEndTime() + ")";
+
+            ChatRoomEntity room = new ChatRoomEntity();
+            room.setRoomName(roomName);
+            room.setRoomType("SHIFT");
+            room.setShiftId(shiftId);
+            room.setCreatedBy(shift.getOpenedBy() != null && shift.getOpenedBy() > 0 ? shift.getOpenedBy() : user.getUserId());
+            room.setCreatedAt(now);
+            room.setUpdatedAt(now);
+            room.setIsActive(true);
+            ChatRoomEntity savedRoom = chatRoomRepository.save(room);
+            roomId = savedRoom.getRoomId();
+        } else {
+            ChatRoomEntity room = existingRoomOpt.get();
+            if ("CANCELLED".equalsIgnoreCase(shift.getStatus())) {
+                room.setIsActive(false);
+                ChatRoomEntity savedRoom = chatRoomRepository.save(room);
+                roomId = savedRoom.getRoomId();
+            } else {
+                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.ROOT);
+                String dateStr = sdf.format(new java.util.Date(shift.getShiftDate()));
+                String expectedName = shift.getShiftName() + " - " + dateStr + " (" + shift.getStartTime() + "-" + shift.getEndTime() + ")";
+
+                boolean changed = false;
+                if (!expectedName.equals(room.getRoomName())) {
+                    room.setRoomName(expectedName);
+                    changed = true;
+                }
+                if (!Boolean.TRUE.equals(room.getIsActive())) {
+                    room.setIsActive(true);
+                    changed = true;
+                }
+                if (changed) {
+                    chatRoomRepository.save(room);
+                }
+                roomId = room.getRoomId();
+            }
+        }
+
+        // Sync participants if not cancelled
+        if (!"CANCELLED".equalsIgnoreCase(shift.getStatus())) {
+            List<ShiftAssignmentEntity> assignments = shiftAssignmentRepository.findByShiftId(shiftId);
+            List<ChatParticipantEntity> currentParticipants = chatParticipantRepository.findByRoomId(roomId);
+
+            // Add missing
+            for (ShiftAssignmentEntity assign : assignments) {
+                boolean exists = false;
+                for (ChatParticipantEntity part : currentParticipants) {
+                    if (part.getUserId().equals(assign.getUserId())) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    ChatParticipantEntity p = new ChatParticipantEntity();
+                    p.setRoomId(roomId);
+                    p.setUserId(assign.getUserId());
+                    p.setJoinedAt(now);
+                    p.setRoleInRoom("MEMBER");
+                    chatParticipantRepository.save(p);
+                }
+            }
+
+            // Remove extra
+            for (ChatParticipantEntity part : currentParticipants) {
+                boolean stillAssigned = false;
+                for (ShiftAssignmentEntity assign : assignments) {
+                    if (assign.getUserId().equals(part.getUserId())) {
+                        stillAssigned = true;
+                        break;
+                    }
+                }
+                if (!stillAssigned) {
+                    chatParticipantRepository.delete(part);
+                }
+            }
+        }
+
+        ChatRoomEntity room = chatRoomRepository.findById(roomId).orElseThrow();
+        ChatMessageEntity latest = chatMessageRepository.findTopByRoomIdOrderByCreatedAtDesc(room.getRoomId());
+        String lastMessage = latest != null ? latest.getContent() : null;
+        Long lastMessageAt = latest != null ? latest.getCreatedAt() : null;
+        int unread = chatReadRepository.countUnreadByRoomAndUser(room.getRoomId(), user.getUserId());
+        long participantCount = chatParticipantRepository.countByRoomId(room.getRoomId());
+
+        return ChatRoomResponse.builder()
+                .roomId(room.getRoomId())
+                .roomName(room.getRoomName())
+                .roomType(room.getRoomType())
+                .shiftId(room.getShiftId())
+                .lastMessage(lastMessage)
+                .lastMessageAt(lastMessageAt)
+                .unreadCount(unread)
+                .participantCount((int) participantCount)
+                .isActive(room.getIsActive())
+                .build();
     }
 
     private void addParticipant(Integer roomId, Integer userId, long joinedAt, String role) {

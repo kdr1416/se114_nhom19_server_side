@@ -9,4 +9,5 @@ import java.util.List;
 public interface ChatMessageRepository extends JpaRepository<ChatMessageEntity, Integer> {
     List<ChatMessageEntity> findByRoomIdOrderByCreatedAtAsc(Integer roomId);
     org.springframework.data.domain.Page<ChatMessageEntity> findByRoomId(Integer roomId, org.springframework.data.domain.Pageable pageable);
+    ChatMessageEntity findTopByRoomIdOrderByCreatedAtDesc(Integer roomId);
 }

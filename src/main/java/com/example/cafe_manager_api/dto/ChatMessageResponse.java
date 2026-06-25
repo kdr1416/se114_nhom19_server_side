@@ -17,5 +17,6 @@ public class ChatMessageResponse {
     private String senderName;
     private String content;
     private Long createdAt;
+    private Boolean isRead;
     private Boolean isDeleted;
 }

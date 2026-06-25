@@ -1,6 +1,7 @@
 package com.example.cafe_manager_api.controller;
 
 import com.example.cafe_manager_api.dto.ChatRoomRequest;
+import com.example.cafe_manager_api.dto.ChatRoomResponse;
 import com.example.cafe_manager_api.dto.ChatMessageResponse;
 import com.example.cafe_manager_api.entity.ChatRoomEntity;
 import com.example.cafe_manager_api.service.ChatService;
@@ -24,11 +25,11 @@ public class ChatRestController {
     private ChatService chatService;
 
     @GetMapping("/rooms")
-    public ResponseEntity<List<ChatRoomEntity>> getRooms(Principal principal) {
+    public ResponseEntity<List<ChatRoomResponse>> getRooms(Principal principal) {
         if (principal == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized access");
         }
-        List<ChatRoomEntity> rooms = chatService.getRoomsForUser(principal.getName());
+        List<ChatRoomResponse> rooms = chatService.getRoomsWithDetails(principal.getName());
         return ResponseEntity.ok(rooms);
     }
 
@@ -66,5 +67,26 @@ public class ChatRestController {
         }
         chatService.markRoomAsRead(roomId, principal.getName());
         return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/unread-count")
+    public ResponseEntity<Integer> getUnreadCount(Principal principal) {
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized access");
+        }
+        int count = chatService.getTotalUnreadCount(principal.getName());
+        return ResponseEntity.ok(count);
+    }
+
+    @PostMapping("/rooms/sync-shift/{shiftId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<ChatRoomResponse> syncShiftRoom(
+            @PathVariable Integer shiftId, 
+            Principal principal) {
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized access");
+        }
+        ChatRoomResponse response = chatService.syncShiftChatRoom(shiftId, principal.getName());
+        return ResponseEntity.ok(response);
     }
 }
