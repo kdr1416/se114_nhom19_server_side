@@ -3,7 +3,9 @@ package com.example.cafe_manager_api.controller;
 import com.example.cafe_manager_api.dto.ShiftRequest;
 import com.example.cafe_manager_api.dto.ShiftResponse;
 import com.example.cafe_manager_api.dto.ShiftReportResponse;
+import com.example.cafe_manager_api.dto.ShiftAssignmentResponse;
 import com.example.cafe_manager_api.service.ShiftService;
+import com.example.cafe_manager_api.service.ShiftReportService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -22,6 +24,9 @@ public class ShiftController {
 
     @Autowired
     private ShiftService shiftService;
+
+    @Autowired
+    private ShiftReportService shiftReportService;
 
     @GetMapping
     public ResponseEntity<List<ShiftResponse>> getShifts(
@@ -137,7 +142,30 @@ public class ShiftController {
     @GetMapping("/{id}/report")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ShiftReportResponse> getShiftReport(@PathVariable Integer id) {
-        ShiftReportResponse response = shiftService.getShiftReport(id);
+        ShiftReportResponse response = shiftReportService.getShiftReport(id);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{id}/assignments")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<List<ShiftAssignmentResponse>> getAssignments(@PathVariable Integer id) {
+        List<ShiftAssignmentResponse> assignments = shiftService.getAssignmentsForShift(id);
+        return ResponseEntity.ok(assignments);
+    }
+
+    @GetMapping("/assignments/{assignmentId}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ShiftAssignmentResponse> getAssignment(@PathVariable Integer assignmentId) {
+        ShiftAssignmentResponse assignment = shiftService.getAssignmentById(assignmentId);
+        return ResponseEntity.ok(assignment);
+    }
+
+    @PutMapping("/assignments/{assignmentId}/confirm")
+    public ResponseEntity<Void> confirmAssignment(@PathVariable Integer assignmentId, Principal principal) {
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Chưa xác thực.");
+        }
+        shiftService.confirmAssignment(assignmentId, principal.getName());
+        return ResponseEntity.ok().build();
     }
 }

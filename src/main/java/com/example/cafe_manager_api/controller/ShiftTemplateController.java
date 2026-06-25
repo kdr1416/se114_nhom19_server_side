@@ -47,6 +47,13 @@ public class ShiftTemplateController {
         return ResponseEntity.ok(response);
     }
 
+    @PutMapping("/{id}/deactivate")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<Void> deactivateTemplate(@PathVariable Integer id) {
+        shiftTemplateService.deactivateTemplate(id);
+        return ResponseEntity.ok().build();
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<?> deleteTemplate(@PathVariable Integer id) {

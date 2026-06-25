@@ -74,6 +74,14 @@ public class ShiftTemplateService {
     }
 
     @Transactional
+    public void deactivateTemplate(Integer id) {
+        ShiftTemplateEntity template = shiftTemplateRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy ca mẫu với ID: " + id));
+        template.setIsActive(false);
+        shiftTemplateRepository.save(template);
+    }
+
+    @Transactional
     public void deleteTemplate(Integer id) {
         if (!shiftTemplateRepository.existsById(id)) {
             throw new EntityNotFoundException("Không tìm thấy ca mẫu với ID: " + id);

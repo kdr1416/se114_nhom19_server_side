@@ -40,6 +40,12 @@ public class ShiftService {
     @Autowired
     private OrderRepository orderRepository;
 
+    @Autowired
+    private ShiftCashSessionRepository shiftCashSessionRepository;
+
+    @Autowired
+    private ShiftReportService shiftReportService;
+
     private ShiftResponse mapToResponse(ShiftEntity shift) {
         return new ShiftResponse(
                 shift.getShiftId(),
@@ -132,14 +138,30 @@ public class ShiftService {
 
         long now = System.currentTimeMillis();
 
-        // 3. Update shift details
+        // 3. Check no existing OPEN cash session for this shift
+        ShiftCashSessionEntity existingSession = shiftCashSessionRepository.findByShiftId(shiftId)
+                .orElse(null);
+        if (existingSession != null && "OPEN".equals(existingSession.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ca này đã có phiên két tiền mặt mở.");
+        }
+
+        // 4. Update shift details
         shift.setStatus("IN_PROGRESS");
         shift.setOpenedBy(user.getUserId());
         shift.setOpenedAt(now);
         shift.setOpeningCash(openingCash);
         ShiftEntity saved = shiftRepository.save(shift);
 
-        // 4. Create ChatRoom for this shift if not exists
+        // 5. Create ShiftCashSessionEntity
+        ShiftCashSessionEntity session = new ShiftCashSessionEntity();
+        session.setShiftId(shiftId);
+        session.setOpeningCash(openingCash);
+        session.setOpenedBy(user.getUserId());
+        session.setOpenedAt(now);
+        session.setStatus("OPEN");
+        shiftCashSessionRepository.save(session);
+
+        // 6. Create ChatRoom for this shift if not exists
         ChatRoomEntity chatRoom = chatRoomRepository.findByShiftId(shiftId).orElse(null);
         if (chatRoom == null) {
             chatRoom = new ChatRoomEntity();
@@ -156,7 +178,7 @@ public class ShiftService {
             chatRoom = chatRoomRepository.save(chatRoom);
         }
 
-        // 5. Add all assigned staff as ChatParticipants
+        // 7. Add all assigned staff as ChatParticipants
         List<ShiftAssignmentEntity> assignments = shiftAssignmentRepository.findByShiftId(shiftId);
         for (ShiftAssignmentEntity assignment : assignments) {
             Optional<ChatParticipantEntity> participantOpt = chatParticipantRepository
@@ -185,6 +207,15 @@ public class ShiftService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Ca làm việc phải ở trạng thái IN_PROGRESS mới có thể đóng.");
         }
 
+        // Check for unpaid orders in this shift
+        List<OrderEntity> orders = orderRepository.findByCreatedShiftId(shiftId);
+        long unpaidOrdersCount = orders.stream()
+                .filter(o -> !"PAID".equalsIgnoreCase(o.getStatus()) && !"CANCELLED".equalsIgnoreCase(o.getStatus()))
+                .count();
+        if (unpaidOrdersCount > 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể đóng ca khi còn " + unpaidOrdersCount + " đơn hàng chưa thanh toán.");
+        }
+
         UserEntity user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Người dùng không tồn tại."));
 
@@ -195,13 +226,38 @@ public class ShiftService {
             throw new AccessDeniedException("Bạn không có quyền đóng ca làm việc này (chỉ người mở ca, Admin hoặc Manager mới có quyền).");
         }
 
-        // 3. Update shift: status=CLOSED, closedBy=userId, closedAt=now, closingCash=cash
+        long now = System.currentTimeMillis();
+
+        // 3. Find OPEN cash session for this shift
+        ShiftCashSessionEntity session = shiftCashSessionRepository.findByShiftId(shiftId)
+                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy phiên két tiền mặt cho ca này."));
+
+        if (!"OPEN".equals(session.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Phiên két tiền mặt không ở trạng thái mở.");
+        }
+
+        // 4. Calculate expectedCash = openingCash + sum of CASH payments
+        double cashPaymentsTotal = orderRepository.sumCashPaymentsByShift(shiftId, "CASH");
+        double expectedCash = session.getOpeningCash() + cashPaymentsTotal;
+        double cashDifference = closingCash - expectedCash;
+
+        // 5. Update session
+        session.setClosingCash(closingCash);
+        session.setExpectedCash(expectedCash);
+        session.setActualCash(closingCash);
+        session.setCashDifference(cashDifference);
+        session.setClosedBy(user.getUserId());
+        session.setClosedAt(now);
+        session.setStatus("CLOSED");
+        shiftCashSessionRepository.save(session);
+
+        // 6. Update shift to CLOSED
         shift.setStatus("CLOSED");
         shift.setClosedBy(user.getUserId());
-        shift.setClosedAt(System.currentTimeMillis());
+        shift.setClosedAt(now);
         shift.setClosingCash(closingCash);
-
         ShiftEntity saved = shiftRepository.save(shift);
+
         return mapToResponse(saved);
     }
 
@@ -272,45 +328,64 @@ public class ShiftService {
 
     @Transactional(readOnly = true)
     public ShiftReportResponse getShiftReport(Integer shiftId) {
-        ShiftEntity shift = shiftRepository.findById(shiftId)
-                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy ca làm việc với ID: " + shiftId));
+        return shiftReportService.getShiftReport(shiftId);
+    }
 
-        // Get orders created in this shift
-        List<OrderEntity> orders = orderRepository.findByCreatedShiftId(shiftId);
-        int totalOrders = orders.size();
-        double totalRevenue = orders.stream()
-                .filter(o -> "PAID".equalsIgnoreCase(o.getStatus()))
-                .mapToDouble(OrderEntity::getTotalAmount)
-                .sum();
-
-        // Get assigned staff
+    @Transactional(readOnly = true)
+    public List<ShiftAssignmentResponse> getAssignmentsForShift(int shiftId) {
         List<ShiftAssignmentEntity> assignments = shiftAssignmentRepository.findByShiftId(shiftId);
-        List<UserProfileResponse> assignedStaff = assignments.stream()
+        return assignments.stream()
                 .map(a -> {
                     UserEntity user = userRepository.findById(a.getUserId()).orElse(null);
-                    if (user != null) {
-                        return new UserProfileResponse(
-                                user.getUserId(),
-                                user.getUsername(),
-                                user.getFullName(),
-                                user.getRole()
-                        );
-                    }
-                    return null;
+                    return new ShiftAssignmentResponse(
+                            a.getAssignmentId(),
+                            a.getShiftId(),
+                            a.getUserId(),
+                            user != null ? user.getFullName() : "",
+                            a.getRole(),
+                            a.getConfirmed(),
+                            a.getCreatedAt()
+                    );
                 })
-                .filter(u -> u != null)
                 .collect(Collectors.toList());
+    }
 
-        return new ShiftReportResponse(
-                shift.getShiftId(),
-                shift.getShiftName(),
-                shift.getShiftDate(),
-                shift.getStatus(),
-                shift.getOpeningCash(),
-                shift.getClosingCash(),
-                totalOrders,
-                totalRevenue,
-                assignedStaff
+    @Transactional
+    public void confirmAssignment(int assignmentId, String username) {
+        UserEntity user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Người dùng không tồn tại."));
+
+        ShiftAssignmentEntity assignment = shiftAssignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy phân công ca làm việc."));
+
+        boolean isPrivileged = "ADMIN".equals(user.getRole()) || "MANAGER".equals(user.getRole());
+        if (!isPrivileged && !assignment.getUserId().equals(user.getUserId())) {
+            throw new AccessDeniedException("Bạn không có quyền xác nhận phân công này.");
+        }
+
+        ShiftEntity shift = shiftRepository.findById(assignment.getShiftId())
+                .orElse(null);
+        if (shift != null && ("CLOSED".equals(shift.getStatus()) || "CANCELLED".equals(shift.getStatus()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể xác nhận phân công cho ca đã đóng hoặc đã hủy.");
+        }
+
+        assignment.setConfirmed(true);
+        shiftAssignmentRepository.save(assignment);
+    }
+
+    @Transactional(readOnly = true)
+    public ShiftAssignmentResponse getAssignmentById(int assignmentId) {
+        ShiftAssignmentEntity a = shiftAssignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy phân công"));
+        UserEntity user = userRepository.findById(a.getUserId()).orElse(null);
+        return new ShiftAssignmentResponse(
+                a.getAssignmentId(),
+                a.getShiftId(),
+                a.getUserId(),
+                user != null ? user.getFullName() : "",
+                a.getRole(),
+                a.getConfirmed(),
+                a.getCreatedAt()
         );
     }
 }

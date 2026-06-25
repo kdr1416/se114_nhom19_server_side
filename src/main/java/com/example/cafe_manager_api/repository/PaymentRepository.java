@@ -5,11 +5,14 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface PaymentRepository extends JpaRepository<PaymentEntity, Integer> {
     Optional<PaymentEntity> findByOrderId(Integer orderId);
+
+    List<PaymentEntity> findByPaidShiftIdAndStatus(Integer paidShiftId, String status);
 
     @Query("SELECT SUM(p.finalAmount) FROM PaymentEntity p WHERE p.paidAt >= :start AND p.paidAt <= :end")
     Double getRevenueInRange(@Param("start") Long start, @Param("end") Long end);
