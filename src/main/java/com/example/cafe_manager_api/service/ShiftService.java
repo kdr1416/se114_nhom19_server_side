@@ -16,7 +16,9 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -74,6 +76,28 @@ public class ShiftService {
                 shiftDate = localDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
             } catch (Exception e) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Định dạng ngày không hợp lệ. Sử dụng yyyy-MM-dd.");
+            }
+        }
+        
+        if (status != null) {
+            status = status.trim();
+            if (status.isEmpty() || "ALL".equalsIgnoreCase(status)) {
+                status = null;
+            } else {
+                status = status.toUpperCase(Locale.ROOT);
+                Set<String> allowedStatuses = Set.of(
+                        "DRAFT",
+                        "PUBLISHED",
+                        "IN_PROGRESS",
+                        "CLOSED",
+                        "CANCELLED"
+                );
+                if (!allowedStatuses.contains(status)) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "Trạng thái ca không hợp lệ."
+                    );
+                }
             }
         }
         

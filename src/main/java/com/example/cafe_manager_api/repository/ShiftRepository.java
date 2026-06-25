@@ -10,7 +10,7 @@ public interface ShiftRepository extends JpaRepository<ShiftEntity, Integer> {
 
     @org.springframework.data.jpa.repository.Query("SELECT s FROM ShiftEntity s WHERE " +
         "(:shiftDate IS NULL OR s.shiftDate = :shiftDate) AND " +
-        "(:status IS NULL OR UPPER(s.status) = UPPER(:status))")
+        "(:status IS NULL OR s.status = :status)")
     List<ShiftEntity> filterShifts(
         @org.springframework.data.repository.query.Param("shiftDate") Long shiftDate,
         @org.springframework.data.repository.query.Param("status") String status
