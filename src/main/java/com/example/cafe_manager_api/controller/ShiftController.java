@@ -3,6 +3,7 @@ package com.example.cafe_manager_api.controller;
 import com.example.cafe_manager_api.dto.ShiftRequest;
 import com.example.cafe_manager_api.dto.ShiftResponse;
 import com.example.cafe_manager_api.dto.ShiftReportResponse;
+import com.example.cafe_manager_api.dto.DailyShiftReportResponse;
 import com.example.cafe_manager_api.dto.ShiftAssignmentResponse;
 import com.example.cafe_manager_api.service.ShiftService;
 import com.example.cafe_manager_api.service.ShiftReportService;
@@ -36,7 +37,7 @@ public class ShiftController {
         return ResponseEntity.ok(responses);
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/{id:\\d+}")
     public ResponseEntity<ShiftResponse> getShiftById(@PathVariable Integer id) {
         ShiftResponse response = shiftService.getShiftById(id);
         return ResponseEntity.ok(response);
@@ -146,6 +147,13 @@ public class ShiftController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/daily-report")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<DailyShiftReportResponse> getDailyShiftReport(@RequestParam String date) {
+        DailyShiftReportResponse response = shiftReportService.getDailyShiftReport(date);
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/{id}/assignments")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<List<ShiftAssignmentResponse>> getAssignments(@PathVariable Integer id) {
@@ -153,7 +161,7 @@ public class ShiftController {
         return ResponseEntity.ok(assignments);
     }
 
-    @GetMapping("/assignments/{assignmentId}")
+    @GetMapping("/assignments/{assignmentId:\\d+}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ShiftAssignmentResponse> getAssignment(@PathVariable Integer assignmentId) {
         ShiftAssignmentResponse assignment = shiftService.getAssignmentById(assignmentId);
@@ -167,5 +175,15 @@ public class ShiftController {
         }
         shiftService.confirmAssignment(assignmentId, principal.getName());
         return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/assignments/me")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<ShiftAssignmentResponse>> getMyAssignments(Principal principal) {
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Chưa xác thực.");
+        }
+        List<ShiftAssignmentResponse> responses = shiftService.getAssignmentsForUser(principal.getName());
+        return ResponseEntity.ok(responses);
     }
 }

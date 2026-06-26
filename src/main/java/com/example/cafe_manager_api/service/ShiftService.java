@@ -263,12 +263,13 @@ public class ShiftService {
         // 4. Calculate expectedCash = openingCash + sum of CASH payments
         double cashPaymentsTotal = orderRepository.sumCashPaymentsByShift(shiftId, "CASH");
         double expectedCash = session.getOpeningCash() + cashPaymentsTotal;
-        double cashDifference = closingCash - expectedCash;
+        double finalClosingCash = expectedCash; // Ignore closingCash input and use expected
+        double cashDifference = 0.0;
 
         // 5. Update session
-        session.setClosingCash(closingCash);
+        session.setClosingCash(finalClosingCash);
         session.setExpectedCash(expectedCash);
-        session.setActualCash(closingCash);
+        session.setActualCash(finalClosingCash);
         session.setCashDifference(cashDifference);
         session.setClosedBy(user.getUserId());
         session.setClosedAt(now);
@@ -279,7 +280,7 @@ public class ShiftService {
         shift.setStatus("CLOSED");
         shift.setClosedBy(user.getUserId());
         shift.setClosedAt(now);
-        shift.setClosingCash(closingCash);
+        shift.setClosingCash(finalClosingCash);
         ShiftEntity saved = shiftRepository.save(shift);
 
         return mapToResponse(saved);
@@ -411,5 +412,23 @@ public class ShiftService {
                 a.getConfirmed(),
                 a.getCreatedAt()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public List<ShiftAssignmentResponse> getAssignmentsForUser(String username) {
+        UserEntity user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Người dùng không tồn tại."));
+        List<ShiftAssignmentEntity> assignments = shiftAssignmentRepository.findByUserId(user.getUserId());
+        return assignments.stream()
+                .map(a -> new ShiftAssignmentResponse(
+                        a.getAssignmentId(),
+                        a.getShiftId(),
+                        a.getUserId(),
+                        user.getFullName(),
+                        a.getRole(),
+                        a.getConfirmed(),
+                        a.getCreatedAt()
+                ))
+                .collect(Collectors.toList());
     }
 }

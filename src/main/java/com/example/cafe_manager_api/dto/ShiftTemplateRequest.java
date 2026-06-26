@@ -23,4 +23,8 @@ public class ShiftTemplateRequest {
 
     @NotNull(message = "isActive is required")
     private Boolean isActive;
+
+    // Effective date range for template validity (epoch millis, nullable)
+    private Long effectiveFromDate;
+    private Long effectiveToDate;
 }

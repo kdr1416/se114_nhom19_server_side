@@ -9,6 +9,7 @@ import jakarta.persistence.EntityNotFoundException;
 import org.springframework.web.server.ResponseStatusException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @ControllerAdvice
 public class GlobalExceptionHandler {
@@ -42,7 +43,37 @@ public class GlobalExceptionHandler {
         Map<String, String> body = new HashMap<>();
         body.put("code", "OVERLAP_ERROR");
         body.put("message", ex.getMessage());
+        return new ResponseEntity<>(body, HttpStatus.CONFLICT);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException ex) {
+        String message = ex.getMessage();
+        HttpStatus status = (message != null && message.toLowerCase().contains("not found"))
+                ? HttpStatus.NOT_FOUND
+                : HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status).body(Map.of("message", message != null ? message : "Bad request"));
+    }
+
+    @ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> handleValidationExceptions(
+            org.springframework.web.bind.MethodArgumentNotValidException ex) {
+        Map<String, String> body = new HashMap<>();
+        body.put("code", "VALIDATION_ERROR");
+        String errorMessage = ex.getBindingResult().getFieldErrors().stream()
+                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .collect(Collectors.joining(", "));
+        body.put("message", errorMessage);
         return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, String>> handleDataIntegrityViolation(
+            org.springframework.dao.DataIntegrityViolationException ex) {
+        Map<String, String> body = new HashMap<>();
+        body.put("code", "DUPLICATE_RECORD");
+        body.put("message", "Lịch đăng ký này đã tồn tại hoặc xảy ra xung đột dữ liệu.");
+        return new ResponseEntity<>(body, HttpStatus.CONFLICT);
     }
 
     @ExceptionHandler(Exception.class)

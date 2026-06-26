@@ -33,6 +33,12 @@ public class ShiftTemplateEntity {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive;
 
+    @Column(name = "effective_from_date")
+    private Long effectiveFromDate;  // nullable - epoch millis
+
+    @Column(name = "effective_to_date")
+    private Long effectiveToDate;    // nullable - epoch millis, null = indefinite
+
     @Column(name = "created_at")
     private Long createdAt;
 }

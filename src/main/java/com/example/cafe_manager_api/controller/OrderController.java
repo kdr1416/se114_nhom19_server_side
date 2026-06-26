@@ -85,4 +85,12 @@ public class OrderController {
         OrderResponse response = orderService.cancelOrder(id);
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/history")
+    public ResponseEntity<List<OrderDetailResponse>> getPaidOrdersHistory(
+            @RequestParam Long from,
+            @RequestParam Long to) {
+        List<OrderDetailResponse> responses = orderService.getPaidOrdersHistory(from, to);
+        return ResponseEntity.ok(responses);
+    }
 }

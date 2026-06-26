@@ -3,6 +3,8 @@ package com.example.cafe_manager_api.controller;
 import com.example.cafe_manager_api.dto.AttendanceResponse;
 import com.example.cafe_manager_api.dto.CheckInRequest;
 import com.example.cafe_manager_api.dto.CheckOutRequest;
+import com.example.cafe_manager_api.dto.TeamAttendanceSummary;
+import com.example.cafe_manager_api.dto.UserAttendanceDetailResponse;
 import com.example.cafe_manager_api.service.AttendanceService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,5 +72,32 @@ public class AttendanceController {
         }
         List<AttendanceResponse> attendances = attendanceService.getAttendanceForShift(shiftId);
         return ResponseEntity.ok(attendances);
+    }
+
+    @GetMapping("/report/team")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<List<TeamAttendanceSummary>> getTeamReport(
+            @RequestParam int year,
+            @RequestParam int month,
+            Principal principal) {
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Chưa xác thực.");
+        }
+        List<TeamAttendanceSummary> report = attendanceService.getTeamAttendanceReport(year, month);
+        return ResponseEntity.ok(report);
+    }
+
+    @GetMapping("/report/details")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<UserAttendanceDetailResponse> getUserDetails(
+            @RequestParam int userId,
+            @RequestParam int year,
+            @RequestParam int month,
+            Principal principal) {
+        if (principal == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Chưa xác thực.");
+        }
+        UserAttendanceDetailResponse details = attendanceService.getUserAttendanceDetails(userId, year, month);
+        return ResponseEntity.ok(details);
     }
 }

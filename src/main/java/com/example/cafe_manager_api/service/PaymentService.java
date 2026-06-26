@@ -145,7 +145,11 @@ public class PaymentService {
                 savedPayment.getSubtotal(),
                 savedPayment.getDiscountAmount(),
                 savedPayment.getFinalAmount(),
-                change
+                change,
+                user.getUserId(),
+                user.getFullName(),
+                savedPayment.getPaymentMethod(),
+                savedPayment.getPaidAt()
         );
     }
 

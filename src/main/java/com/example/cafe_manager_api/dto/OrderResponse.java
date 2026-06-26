@@ -18,4 +18,5 @@ public class OrderResponse {
     private Long paidAt;
     private Integer createdByUserId;
     private Integer createdShiftId;
+    private String createdByFullName;
 }

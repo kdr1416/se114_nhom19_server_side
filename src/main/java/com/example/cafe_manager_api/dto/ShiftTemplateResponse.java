@@ -14,5 +14,7 @@ public class ShiftTemplateResponse {
     private String endTime;
     private Integer minStaff;
     private Boolean isActive;
+    private Long effectiveFromDate;  // nullable - epoch millis
+    private Long effectiveToDate;    // nullable - epoch millis
     private Long createdAt;
 }

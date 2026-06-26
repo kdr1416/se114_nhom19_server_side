@@ -35,6 +35,12 @@ public class OrderService {
     private ShiftRepository shiftRepository;
 
     private OrderResponse mapToOrderResponse(OrderEntity order) {
+        String createdByFullName = null;
+        if (order.getCreatedByUserId() != null) {
+            createdByFullName = userRepository.findById(order.getCreatedByUserId())
+                    .map(UserEntity::getFullName)
+                    .orElse(null);
+        }
         return new OrderResponse(
                 order.getOrderId(),
                 order.getTableId(),
@@ -45,7 +51,8 @@ public class OrderService {
                 order.getCreatedAt(),
                 order.getPaidAt(),
                 order.getCreatedByUserId(),
-                order.getCreatedShiftId()
+                order.getCreatedShiftId(),
+                createdByFullName
         );
     }
 
@@ -274,5 +281,59 @@ public class OrderService {
         double total = items.stream().mapToDouble(OrderItemEntity::getSubtotal).sum();
         order.setTotalAmount(total);
         orderRepository.save(order);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderDetailResponse> getPaidOrdersHistory(Long fromMs, Long toMs) {
+        List<OrderEntity> orders = orderRepository.findByStatusAndPaidAtBetween("PAID", fromMs, toMs);
+        if (orders.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+
+        List<Integer> orderIds = orders.stream().map(OrderEntity::getOrderId).collect(Collectors.toList());
+        List<OrderItemEntity> allItems = orderItemRepository.findByOrderIdIn(orderIds);
+        java.util.Map<Integer, List<OrderItemEntity>> itemsByOrderId = allItems.stream()
+                .collect(Collectors.groupingBy(OrderItemEntity::getOrderId));
+
+        java.util.Set<Integer> userIds = orders.stream()
+                .map(OrderEntity::getCreatedByUserId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        java.util.Map<Integer, String> userFullNameMap = new java.util.HashMap<>();
+        if (!userIds.isEmpty()) {
+            List<UserEntity> users = userRepository.findAllByUserIdIn(new java.util.ArrayList<>(userIds));
+            for (UserEntity u : users) {
+                userFullNameMap.put(u.getUserId(), u.getFullName());
+            }
+        }
+
+        return orders.stream().map(order -> {
+            String createdByFullName = null;
+            if (order.getCreatedByUserId() != null) {
+                createdByFullName = userFullNameMap.get(order.getCreatedByUserId());
+            }
+
+            OrderResponse orderResponse = new OrderResponse(
+                    order.getOrderId(),
+                    order.getTableId(),
+                    order.getOrderCode(),
+                    order.getStatus(),
+                    order.getTotalAmount(),
+                    order.getNote(),
+                    order.getCreatedAt(),
+                    order.getPaidAt(),
+                    order.getCreatedByUserId(),
+                    order.getCreatedShiftId(),
+                    createdByFullName
+            );
+
+            List<OrderItemEntity> items = itemsByOrderId.getOrDefault(order.getOrderId(), java.util.Collections.emptyList());
+            List<OrderItemResponse> itemResponses = items.stream()
+                    .map(this::mapToOrderItemResponse)
+                    .collect(Collectors.toList());
+
+            return new OrderDetailResponse(orderResponse, itemResponses);
+        }).collect(Collectors.toList());
     }
 }

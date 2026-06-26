@@ -31,6 +31,21 @@ public class ShiftReportResponse {
     private List<PaymentMethodStatsResponse> paymentMethodStats;
     private List<ProductSoldSummary> topProducts;
     private List<StaffAttendanceSummary> attendanceList;
+    private List<ShiftOrderResponse> orderHistory;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ShiftOrderResponse {
+        private Integer orderId;
+        private String orderCode;
+        private String tableName;
+        private Double totalAmount;
+        private String status;
+        private String paymentMethod;
+        private Long paidAt;
+        private String cashierName;
+    }
 
     @Data
     @NoArgsConstructor

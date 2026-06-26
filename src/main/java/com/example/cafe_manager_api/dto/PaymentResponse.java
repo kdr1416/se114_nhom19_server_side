@@ -13,4 +13,8 @@ public class PaymentResponse {
     private Double discountAmount;
     private Double total;
     private Double change;
+    private Integer cashierUserId;
+    private String cashierFullName;
+    private String paymentMethod;
+    private Long paidAt;
 }

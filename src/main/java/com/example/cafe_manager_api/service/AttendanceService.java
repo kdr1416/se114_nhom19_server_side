@@ -40,6 +40,12 @@ public class AttendanceService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private com.example.cafe_manager_api.repository.OrderRepository orderRepository;
+
+    @Autowired
+    private com.example.cafe_manager_api.repository.PaymentRepository paymentRepository;
+
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getAllAttendancesForUser(String username) {
         UserEntity user = userRepository.findByUsername(username)
@@ -86,14 +92,14 @@ public class AttendanceService {
             throw new AccessDeniedException("Bạn không được phân công ca làm việc này.");
         }
 
-        if (!Boolean.TRUE.equals(assignment.getConfirmed())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bạn cần xác nhận ca làm việc trước khi check-in.");
+        long checkInTime = System.currentTimeMillis();
+        long shiftStartTime = ShiftTimeUtils.getShiftStartMillis(shift.getShiftDate(), shift.getStartTime());
+
+        if (checkInTime < shiftStartTime - 15 * 60 * 1000) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chưa đến giờ check-in (chỉ được check-in trước giờ bắt đầu ca tối đa 15 phút).");
         }
 
         AttendanceEntity existing = attendanceRepository.findByShiftIdAndUserId(request.getShiftId(), userId);
-
-        long checkInTime = System.currentTimeMillis();
-        long shiftStartTime = ShiftTimeUtils.getShiftStartMillis(shift.getShiftDate(), shift.getStartTime());
 
         String status = Constants.ATTENDANCE_CHECKED_IN;
         int lateMin = 0;
@@ -207,5 +213,281 @@ public class AttendanceService {
         r.setEarlyLeaveMinutes(entity.getEarlyLeaveMinutes());
         r.setNotes(entity.getNotes());
         return r;
+    }
+
+    @Transactional(readOnly = true)
+    public List<com.example.cafe_manager_api.dto.TeamAttendanceSummary> getTeamAttendanceReport(int year, int month) {
+        java.time.ZoneId zone = java.time.ZoneId.of("Asia/Ho_Chi_Minh");
+        java.time.LocalDate start = java.time.LocalDate.of(year, month, 1);
+        long startEpoch = start.atStartOfDay(zone).toInstant().toEpochMilli();
+        long endEpoch = start.plusMonths(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1;
+
+        List<ShiftEntity> shifts = shiftRepository.findShiftsInRange(startEpoch, endEpoch);
+        List<ShiftEntity> activeShifts = shifts.stream()
+                .filter(s -> !Constants.SHIFT_CANCELLED.equalsIgnoreCase(s.getStatus()))
+                .collect(Collectors.toList());
+
+        if (activeShifts.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<Integer> shiftIds = activeShifts.stream().map(ShiftEntity::getShiftId).collect(Collectors.toList());
+        List<ShiftAssignmentEntity> assignments = shiftAssignmentRepository.findAssignmentsInDateRange(startEpoch, endEpoch);
+        
+        List<AttendanceEntity> attendances = attendanceRepository.findByShiftIdIn(shiftIds);
+        Map<String, AttendanceEntity> attendanceMap = attendances.stream()
+                .collect(Collectors.toMap(a -> a.getUserId() + "_" + a.getShiftId(), a -> a, (a1, a2) -> a1));
+
+        Map<Integer, ShiftEntity> shiftMap = activeShifts.stream()
+                .collect(Collectors.toMap(ShiftEntity::getShiftId, s -> s));
+
+        List<UserEntity> allUsers = userRepository.findAll();
+        List<com.example.cafe_manager_api.dto.TeamAttendanceSummary> summaries = new ArrayList<>();
+        long now = System.currentTimeMillis();
+
+        for (UserEntity user : allUsers) {
+            List<ShiftAssignmentEntity> userAssignments = assignments.stream()
+                    .filter(a -> a.getUserId().equals(user.getUserId()) && shiftMap.containsKey(a.getShiftId()))
+                    .collect(Collectors.toList());
+
+            if (userAssignments.isEmpty() && !Boolean.TRUE.equals(user.getIsActive())) {
+                continue; // Skip inactive users who have no assignments this month
+            }
+
+            int totalShifts = userAssignments.size();
+            int attendedShifts = 0;
+            int absentShifts = 0;
+            int lateCount = 0;
+            int earlyLeaveCount = 0;
+            double totalHoursWorked = 0.0;
+
+            for (ShiftAssignmentEntity assignment : userAssignments) {
+                ShiftEntity shift = shiftMap.get(assignment.getShiftId());
+                AttendanceEntity att = attendanceMap.get(user.getUserId() + "_" + assignment.getShiftId());
+
+                long shiftStart = ShiftTimeUtils.getShiftStartMillis(shift.getShiftDate(), shift.getStartTime());
+                long shiftEnd = ShiftTimeUtils.getShiftEndMillis(shift.getShiftDate(), shift.getStartTime(), shift.getEndTime());
+
+                if (att != null && att.getCheckInAt() != null && att.getCheckInAt() > 0) {
+                    attendedShifts++;
+                    if (att.getLateMinutes() != null && att.getLateMinutes() > 0) {
+                        lateCount++;
+                    }
+                    if (att.getEarlyLeaveMinutes() != null && att.getEarlyLeaveMinutes() > 0) {
+                        earlyLeaveCount++;
+                    }
+                    if (att.getCheckOutAt() != null && att.getCheckOutAt() > 0) {
+                        long effectiveStart = Math.max(att.getCheckInAt(), shiftStart);
+                        long effectiveEnd = Math.min(att.getCheckOutAt(), shiftEnd);
+                        double hours = Math.max(0.0, (effectiveEnd - effectiveStart) / 3600000.0);
+                        totalHoursWorked += hours;
+                    }
+                } else {
+                    if (shiftEnd < now) {
+                        absentShifts++;
+                    }
+                }
+            }
+
+            double attendanceRate = totalShifts > 0 ? (attendedShifts * 100.0 / totalShifts) : 0.0;
+            attendanceRate = Math.round(attendanceRate * 10.0) / 10.0;
+            totalHoursWorked = Math.round(totalHoursWorked * 10.0) / 10.0;
+
+            int ordersCreated = 0;
+            int paymentsProcessed = 0;
+            double revenueProcessed = 0.0;
+            List<Integer> userShiftIds = userAssignments.stream()
+                    .map(ShiftAssignmentEntity::getShiftId)
+                    .collect(Collectors.toList());
+            if (!userShiftIds.isEmpty()) {
+                ordersCreated = (int) orderRepository.countCreatedOrdersByShiftIds(user.getUserId(), userShiftIds);
+                paymentsProcessed = (int) paymentRepository.countProcessedPaymentsByShiftIds(user.getUserId(), userShiftIds);
+                revenueProcessed = paymentRepository.sumRevenueByShiftIds(user.getUserId(), userShiftIds);
+            }
+
+            summaries.add(new com.example.cafe_manager_api.dto.TeamAttendanceSummary(
+                    user.getUserId(),
+                    user.getFullName(),
+                    user.getUsername(),
+                    user.getRole(),
+                    totalShifts,
+                    attendedShifts,
+                    absentShifts,
+                    lateCount,
+                    earlyLeaveCount,
+                    totalHoursWorked,
+                    attendanceRate,
+                    ordersCreated,
+                    paymentsProcessed,
+                    revenueProcessed
+            ));
+        }
+
+        summaries.sort((a, b) -> a.getFullName().compareToIgnoreCase(b.getFullName()));
+        return summaries;
+    }
+
+    @Transactional(readOnly = true)
+    public com.example.cafe_manager_api.dto.UserAttendanceDetailResponse getUserAttendanceDetails(int userId, int year, int month) {
+        UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> new EntityNotFoundException("Nhân viên không tồn tại."));
+
+        java.time.ZoneId zone = java.time.ZoneId.of("Asia/Ho_Chi_Minh");
+        java.time.LocalDate start = java.time.LocalDate.of(year, month, 1);
+        long startEpoch = start.atStartOfDay(zone).toInstant().toEpochMilli();
+        long endEpoch = start.plusMonths(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1;
+
+        List<ShiftEntity> shifts = shiftRepository.findShiftsInRange(startEpoch, endEpoch);
+        List<ShiftEntity> activeShifts = shifts.stream()
+                .filter(s -> !Constants.SHIFT_CANCELLED.equalsIgnoreCase(s.getStatus()))
+                .collect(Collectors.toList());
+
+        List<ShiftAssignmentEntity> assignments = shiftAssignmentRepository.findAssignmentsInDateRange(startEpoch, endEpoch)
+                .stream()
+                .filter(a -> a.getUserId().equals(userId))
+                .collect(Collectors.toList());
+
+        List<Integer> shiftIds = activeShifts.stream().map(ShiftEntity::getShiftId).collect(Collectors.toList());
+        List<AttendanceEntity> attendances = attendanceRepository.findByShiftIdIn(shiftIds).stream()
+                .filter(a -> a.getUserId().equals(userId))
+                .collect(Collectors.toList());
+
+        Map<Integer, AttendanceEntity> attendanceMap = attendances.stream()
+                .collect(Collectors.toMap(AttendanceEntity::getShiftId, a -> a, (a1, a2) -> a1));
+
+        Map<Integer, ShiftEntity> shiftMap = activeShifts.stream()
+                .collect(Collectors.toMap(ShiftEntity::getShiftId, s -> s));
+
+        List<com.example.cafe_manager_api.dto.UserAttendanceDetailResponse.AttendanceRecord> records = new ArrayList<>();
+        long now = System.currentTimeMillis();
+
+        int totalShifts = 0;
+        int attendedShifts = 0;
+        int absentShifts = 0;
+        int lateCount = 0;
+        int earlyLeaveCount = 0;
+        double totalHoursWorked = 0.0;
+
+        for (ShiftAssignmentEntity assignment : assignments) {
+            ShiftEntity shift = shiftMap.get(assignment.getShiftId());
+            if (shift == null) continue;
+
+            totalShifts++;
+            AttendanceEntity att = attendanceMap.get(shift.getShiftId());
+
+            long shiftStart = ShiftTimeUtils.getShiftStartMillis(shift.getShiftDate(), shift.getStartTime());
+            long shiftEnd = ShiftTimeUtils.getShiftEndMillis(shift.getShiftDate(), shift.getStartTime(), shift.getEndTime());
+            double durationHours = Math.round(((shiftEnd - shiftStart) / 3600000.0) * 10.0) / 10.0;
+
+            Long checkInAt = null;
+            Long checkOutAt = null;
+            int lateMin = 0;
+            int earlyLeaveMin = 0;
+            String recordStatus = "UPCOMING";
+            String notes = "";
+
+            if (att != null) {
+                checkInAt = att.getCheckInAt();
+                checkOutAt = att.getCheckOutAt();
+                lateMin = att.getLateMinutes() != null ? att.getLateMinutes() : 0;
+                earlyLeaveMin = att.getEarlyLeaveMinutes() != null ? att.getEarlyLeaveMinutes() : 0;
+                notes = att.getNotes() != null ? att.getNotes() : "";
+
+                if (checkInAt != null && checkInAt > 0) {
+                    attendedShifts++;
+                    if (lateMin > 0) {
+                        lateCount++;
+                    }
+                    if (earlyLeaveMin > 0) {
+                        earlyLeaveCount++;
+                    }
+                    if (checkOutAt != null && checkOutAt > 0) {
+                        long effectiveStart = Math.max(checkInAt, shiftStart);
+                        long effectiveEnd = Math.min(checkOutAt, shiftEnd);
+                        double hours = Math.max(0.0, (effectiveEnd - effectiveStart) / 3600000.0);
+                        totalHoursWorked += hours;
+                        recordStatus = att.getStatus();
+                    } else {
+                        recordStatus = "IN_PROGRESS";
+                    }
+                } else {
+                    if (shiftEnd < now) {
+                        absentShifts++;
+                        recordStatus = "ABSENT";
+                    } else if (shiftStart < now) {
+                        recordStatus = "IN_PROGRESS";
+                    }
+                }
+            } else {
+                if (shiftEnd < now) {
+                    absentShifts++;
+                    recordStatus = "ABSENT";
+                } else if (shiftStart < now) {
+                    recordStatus = "IN_PROGRESS";
+                }
+            }
+
+            int shiftOrders = (int) orderRepository.countCreatedOrdersByShiftId(userId, shift.getShiftId());
+            int shiftPayments = (int) paymentRepository.countProcessedPaymentsByShiftId(userId, shift.getShiftId());
+            double shiftRevenue = paymentRepository.sumRevenueByShiftId(userId, shift.getShiftId());
+
+            records.add(new com.example.cafe_manager_api.dto.UserAttendanceDetailResponse.AttendanceRecord(
+                    shift.getShiftId(),
+                    shift.getShiftName(),
+                    shift.getShiftDate(),
+                    shift.getStartTime(),
+                    shift.getEndTime(),
+                    durationHours,
+                    checkInAt != null ? checkInAt : 0L,
+                    checkOutAt != null ? checkOutAt : 0L,
+                    lateMin,
+                    earlyLeaveMin,
+                    recordStatus,
+                    notes,
+                    shiftOrders,
+                    shiftPayments,
+                    shiftRevenue
+            ));
+        }
+
+        records.sort((a, b) -> {
+            int cmp = Long.compare(a.getShiftDate(), b.getShiftDate());
+            if (cmp != 0) return cmp;
+            return a.getStartTime().compareTo(b.getStartTime());
+        });
+
+        double attendanceRate = totalShifts > 0 ? (attendedShifts * 100.0 / totalShifts) : 0.0;
+        attendanceRate = Math.round(attendanceRate * 10.0) / 10.0;
+        totalHoursWorked = Math.round(totalHoursWorked * 10.0) / 10.0;
+
+        int monthOrders = 0;
+        int monthPayments = 0;
+        double monthRevenue = 0.0;
+        List<Integer> allShiftIds = assignments.stream()
+                .map(ShiftAssignmentEntity::getShiftId)
+                .collect(Collectors.toList());
+        if (!allShiftIds.isEmpty()) {
+            monthOrders = (int) orderRepository.countCreatedOrdersByShiftIds(userId, allShiftIds);
+            monthPayments = (int) paymentRepository.countProcessedPaymentsByShiftIds(userId, allShiftIds);
+            monthRevenue = paymentRepository.sumRevenueByShiftIds(userId, allShiftIds);
+        }
+
+        return new com.example.cafe_manager_api.dto.UserAttendanceDetailResponse(
+                user.getUserId(),
+                user.getFullName(),
+                user.getUsername(),
+                user.getRole(),
+                totalShifts,
+                attendedShifts,
+                absentShifts,
+                lateCount,
+                earlyLeaveCount,
+                totalHoursWorked,
+                attendanceRate,
+                monthOrders,
+                monthPayments,
+                monthRevenue,
+                records
+        );
     }
 }
