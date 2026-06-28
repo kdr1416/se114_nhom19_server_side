@@ -10,4 +10,6 @@ public class ChatRoomRequest {
     private String roomName;
 
     private String targetRole;
+
+    private String targetRoles;
 }

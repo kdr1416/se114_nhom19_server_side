@@ -26,6 +26,7 @@ public interface ChatReadRepository extends JpaRepository<ChatReadEntity, Intege
                                  @org.springframework.data.repository.query.Param("userId") Integer userId);
 
     @org.springframework.data.jpa.repository.Query("SELECT COUNT(cm) FROM ChatMessageEntity cm " +
+           "JOIN ChatParticipantEntity cp ON cm.roomId = cp.roomId AND cp.userId = :userId " +
            "LEFT JOIN ChatReadEntity cr ON cm.messageId = cr.messageId AND cr.userId = :userId " +
            "WHERE cm.senderId <> :userId AND cm.isDeleted = false AND cr.readId IS NULL")
     int countTotalUnreadByUser(@org.springframework.data.repository.query.Param("userId") Integer userId);

@@ -14,6 +14,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.example.cafe_manager_api.repository.UserRepository;
+import com.example.cafe_manager_api.entity.UserEntity;
+import com.example.cafe_manager_api.util.Constants;
 import java.security.Principal;
 import java.util.List;
 
@@ -23,6 +26,9 @@ public class AttendanceController {
 
     @Autowired
     private AttendanceService attendanceService;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
@@ -88,7 +94,7 @@ public class AttendanceController {
     }
 
     @GetMapping("/report/details")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<UserAttendanceDetailResponse> getUserDetails(
             @RequestParam int userId,
             @RequestParam int year,
@@ -96,6 +102,14 @@ public class AttendanceController {
             Principal principal) {
         if (principal == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Chưa xác thực.");
+        }
+        UserEntity currentUser = userRepository.findByUsername(principal.getName())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy người dùng."));
+        if (!"ADMIN".equalsIgnoreCase(currentUser.getRole()) && 
+            !"MANAGER".equalsIgnoreCase(currentUser.getRole())) {
+            if (!currentUser.getUserId().equals(userId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền truy cập thông tin này.");
+            }
         }
         UserAttendanceDetailResponse details = attendanceService.getUserAttendanceDetails(userId, year, month);
         return ResponseEntity.ok(details);

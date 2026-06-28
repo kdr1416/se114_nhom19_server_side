@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class PaymentResponse {
     private Integer paymentId;
+    private Integer orderId;
     private Double subtotal;
     private Double discountAmount;
     private Double total;
@@ -17,4 +18,5 @@ public class PaymentResponse {
     private String cashierFullName;
     private String paymentMethod;
     private Long paidAt;
+    private Integer paidShiftId;
 }

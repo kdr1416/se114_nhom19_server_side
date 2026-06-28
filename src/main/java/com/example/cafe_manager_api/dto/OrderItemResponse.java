@@ -16,4 +16,5 @@ public class OrderItemResponse {
     private Double unitPrice;
     private Double subtotal;
     private String note;
+    private Integer servedQuantity;
 }

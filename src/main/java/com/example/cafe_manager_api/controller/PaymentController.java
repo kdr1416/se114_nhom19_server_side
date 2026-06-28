@@ -12,6 +12,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import java.security.Principal;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/payments")
@@ -30,9 +31,18 @@ public class PaymentController {
     }
 
     @GetMapping("/{orderId}")
-    public ResponseEntity<com.example.cafe_manager_api.entity.PaymentEntity> getPaymentByOrderId(@PathVariable Integer orderId) {
-        com.example.cafe_manager_api.entity.PaymentEntity response = paymentService.getPaymentByOrderId(orderId);
+    public ResponseEntity<com.example.cafe_manager_api.dto.PaymentResponse> getPaymentByOrderId(@PathVariable Integer orderId) {
+        com.example.cafe_manager_api.dto.PaymentResponse response = paymentService.getPaymentByOrderId(orderId);
         return ResponseEntity.ok(response);
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @GetMapping
+    public ResponseEntity<List<com.example.cafe_manager_api.dto.PaymentResponse>> getPaymentsInRange(
+            @RequestParam("startDate") Long startDate,
+            @RequestParam("endDate") Long endDate) {
+        List<com.example.cafe_manager_api.dto.PaymentResponse> payments = paymentService.getPaymentsInRange(startDate, endDate);
+        return ResponseEntity.ok(payments);
     }
 
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")

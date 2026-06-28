@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -87,6 +88,9 @@ public class ChatService {
         room.setRoomName(request.getRoomName().trim());
         room.setRoomType("GENERAL");
         room.setTargetRole(request.getTargetRole() != null ? request.getTargetRole().trim() : null);
+        if (request.getTargetRoles() != null) {
+            room.setTargetRoles(request.getTargetRoles().trim());
+        }
         room.setCreatedBy(creator.getUserId());
         room.setCreatedAt(now);
         room.setUpdatedAt(now);
@@ -99,10 +103,19 @@ public class ChatService {
 
         // Find users to auto-add
         List<UserEntity> targetUsers;
-        if (request.getTargetRole() != null && !request.getTargetRole().trim().isEmpty()) {
+        if (request.getTargetRoles() != null && !request.getTargetRoles().trim().isEmpty()) {
+            // Parse comma-separated roles
+            List<String> roles = Arrays.asList(request.getTargetRoles().split(","));
+            targetUsers = userRepository.findAll().stream()
+                .filter(u -> Boolean.TRUE.equals(u.getIsActive())
+                    && roles.stream().anyMatch(r -> r.trim().equalsIgnoreCase(u.getRole())))
+                .collect(Collectors.toList());
+        } else if (request.getTargetRole() != null && !request.getTargetRole().trim().isEmpty()) {
             targetUsers = userRepository.findByRole(request.getTargetRole().trim());
         } else {
-            targetUsers = userRepository.findAll();
+            targetUsers = userRepository.findAll().stream()
+                .filter(u -> Boolean.TRUE.equals(u.getIsActive()))
+                .collect(Collectors.toList());
         }
 
         for (UserEntity targetUser : targetUsers) {
@@ -198,6 +211,37 @@ public class ChatService {
                     .isActive(room.getIsActive())
                     .build();
         }).collect(Collectors.toList());
+    }
+
+    @Transactional
+    public void addUserToSystemRooms(Integer userId, String userRole) {
+        // Find all SYSTEM rooms
+        List<ChatRoomEntity> systemRooms = chatRoomRepository.findByRoomType("SYSTEM");
+
+        for (ChatRoomEntity room : systemRooms) {
+            String targetRoles = room.getTargetRoles();
+            if (targetRoles == null || targetRoles.isEmpty()) continue;
+
+            // Check if this user's role matches any of the room's target roles
+            List<String> roles = Arrays.asList(targetRoles.split(","));
+            boolean matches = roles.stream()
+                .anyMatch(r -> r.trim().equalsIgnoreCase(userRole));
+
+            if (!matches) continue;
+
+            // Check if user is already a participant (avoid duplicate)
+            boolean alreadyMember = chatParticipantRepository
+                .existsByRoomIdAndUserId(room.getRoomId(), userId);
+            if (alreadyMember) continue;
+
+            // Add user to room
+            ChatParticipantEntity participant = new ChatParticipantEntity();
+            participant.setRoomId(room.getRoomId());
+            participant.setUserId(userId);
+            participant.setJoinedAt(System.currentTimeMillis());
+            participant.setRoleInRoom("MEMBER");
+            chatParticipantRepository.save(participant);
+        }
     }
 
     @Transactional(readOnly = true)

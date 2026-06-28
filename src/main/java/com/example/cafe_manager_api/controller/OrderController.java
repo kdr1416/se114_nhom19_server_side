@@ -42,8 +42,20 @@ public class OrderController {
     @PostMapping("/{id}/items")
     public ResponseEntity<OrderDetailResponse> addItem(
             @PathVariable Integer id,
-            @Valid @RequestBody OrderItemRequest request) {
-        OrderDetailResponse response = orderService.addItem(id, request);
+            @Valid @RequestBody OrderItemRequest request,
+            Principal principal) {
+        String username = principal != null ? principal.getName() : "admin";
+        OrderDetailResponse response = orderService.addItem(id, request, username);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{id}/items/bulk")
+    public ResponseEntity<OrderDetailResponse> addItemsBulk(
+            @PathVariable Integer id,
+            @Valid @RequestBody List<OrderItemRequest> requests,
+            Principal principal) {
+        String username = principal != null ? principal.getName() : "admin";
+        OrderDetailResponse response = orderService.addItemsBulk(id, requests, username);
         return ResponseEntity.ok(response);
     }
 
@@ -52,7 +64,9 @@ public class OrderController {
             @PathVariable Integer id,
             @PathVariable Integer itemId,
             @RequestBody(required = false) Map<String, Integer> body,
-            @RequestParam(required = false) Integer quantity) {
+            @RequestParam(required = false) Integer quantity,
+            Principal principal) {
+        String username = principal != null ? principal.getName() : "admin";
         Integer q = null;
         if (body != null && body.containsKey("quantity")) {
             q = body.get("quantity");
@@ -62,27 +76,38 @@ public class OrderController {
         if (q == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Yêu cầu cung cấp số lượng (quantity) trong body hoặc query param.");
         }
-        OrderDetailResponse response = orderService.updateItem(id, itemId, q);
+        OrderDetailResponse response = orderService.updateItem(id, itemId, q, username);
         return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{id}/items/{itemId}")
     public ResponseEntity<OrderDetailResponse> removeItem(
             @PathVariable Integer id,
-            @PathVariable Integer itemId) {
-        OrderDetailResponse response = orderService.removeItem(id, itemId);
+            @PathVariable Integer itemId,
+            Principal principal) {
+        String username = principal != null ? principal.getName() : "admin";
+        OrderDetailResponse response = orderService.removeItem(id, itemId, username);
         return ResponseEntity.ok(response);
     }
 
     @PutMapping("/{id}/confirm")
-    public ResponseEntity<OrderResponse> confirmOrder(@PathVariable Integer id) {
-        OrderResponse response = orderService.confirmOrder(id);
+    public ResponseEntity<OrderResponse> confirmOrder(@PathVariable Integer id, Principal principal) {
+        String username = principal != null ? principal.getName() : "admin";
+        OrderResponse response = orderService.confirmOrder(id, username);
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/{id}/serve")
+    public ResponseEntity<OrderResponse> serveOrder(@PathVariable Integer id, Principal principal) {
+        String username = principal != null ? principal.getName() : "admin";
+        OrderResponse response = orderService.serveOrder(id, username);
         return ResponseEntity.ok(response);
     }
 
     @PutMapping("/{id}/cancel")
-    public ResponseEntity<OrderResponse> cancelOrder(@PathVariable Integer id) {
-        OrderResponse response = orderService.cancelOrder(id);
+    public ResponseEntity<OrderResponse> cancelOrder(@PathVariable Integer id, Principal principal) {
+        String username = principal != null ? principal.getName() : "admin";
+        OrderResponse response = orderService.cancelOrder(id, username);
         return ResponseEntity.ok(response);
     }
 

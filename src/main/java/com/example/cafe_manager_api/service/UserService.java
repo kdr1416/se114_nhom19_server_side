@@ -15,6 +15,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.List;
 
@@ -29,6 +30,10 @@ public class UserService {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Lazy
+    @Autowired
+    private ChatService chatService;
 
     private UserEntity getRequester(String requesterUsername) {
         return userRepository.findByUsername(requesterUsername)
@@ -88,6 +93,8 @@ public class UserService {
 
         logAudit(requester.getUserId(), "CREATE_USER", "USER", String.valueOf(savedUser.getUserId()), 
                 "Tạo người dùng mới: " + savedUser.getUsername());
+
+        chatService.addUserToSystemRooms(savedUser.getUserId(), savedUser.getRole());
 
         return savedUser;
     }

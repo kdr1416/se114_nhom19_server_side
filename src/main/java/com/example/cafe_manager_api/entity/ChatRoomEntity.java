@@ -21,6 +21,7 @@ public class ChatRoomEntity {
     @Column(name = "room_name")
     private String roomName;
 
+    // roomType values: "GENERAL" | "SHIFT" | "SYSTEM"
     @Column(name = "room_type")
     private String roomType;
 
@@ -29,6 +30,19 @@ public class ChatRoomEntity {
 
     @Column(name = "target_role")
     private String targetRole;
+
+    @Column(name = "target_roles")
+    private String targetRoles;
+    // Comma-separated roles for SYSTEM rooms e.g. "STAFF,MANAGER,ADMIN"
+    // Kept separate from targetRole to avoid breaking existing GENERAL room queries
+
+    public String getTargetRoles() {
+        return targetRoles;
+    }
+
+    public void setTargetRoles(String targetRoles) {
+        this.targetRoles = targetRoles;
+    }
 
     @Column(name = "created_by")
     private Integer createdBy;

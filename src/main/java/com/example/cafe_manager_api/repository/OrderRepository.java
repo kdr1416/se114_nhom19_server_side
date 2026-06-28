@@ -9,6 +9,7 @@ import java.util.List;
 public interface OrderRepository extends JpaRepository<OrderEntity, Integer> {
     List<OrderEntity> findByTableIdAndStatus(Integer tableId, String status);
     List<OrderEntity> findByStatus(String status);
+    List<OrderEntity> findByStatusIn(List<String> statuses);
     List<OrderEntity> findByStatusAndPaidAtBetween(String status, Long from, Long to);
     List<OrderEntity> findByCreatedShiftId(Integer createdShiftId);
     List<OrderEntity> findByCreatedShiftIdIn(List<Integer> createdShiftIds);

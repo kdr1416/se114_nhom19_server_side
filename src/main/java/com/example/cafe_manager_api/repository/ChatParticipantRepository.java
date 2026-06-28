@@ -10,6 +10,7 @@ public interface ChatParticipantRepository extends JpaRepository<ChatParticipant
     List<ChatParticipantEntity> findByRoomId(Integer roomId);
     List<ChatParticipantEntity> findByUserId(Integer userId);
     java.util.Optional<ChatParticipantEntity> findByRoomIdAndUserId(Integer roomId, Integer userId);
+    boolean existsByRoomIdAndUserId(Integer roomId, Integer userId);
     long countByRoomId(Integer roomId);
 }
 

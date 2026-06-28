@@ -38,4 +38,11 @@ public class OrderItemEntity {
 
     @Column(name = "note")
     private String note;
+
+    @Column(name = "served_quantity")
+    private Integer servedQuantity = 0;
+
+    public Integer getServedQuantity() {
+        return servedQuantity == null ? 0 : servedQuantity;
+    }
 }

@@ -10,4 +10,6 @@ public class OrderRequest {
     private Integer tableId;
 
     private String note;
+
+    private java.util.List<OrderItemRequest> items;
 }

@@ -16,6 +16,8 @@ import com.example.cafe_manager_api.repository.PromotionRepository;
 import com.example.cafe_manager_api.repository.TableRepository;
 import com.example.cafe_manager_api.repository.UserRepository;
 import com.example.cafe_manager_api.repository.ShiftRepository;
+import com.example.cafe_manager_api.repository.AttendanceRepository;
+import com.example.cafe_manager_api.entity.AttendanceEntity;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -50,15 +52,44 @@ public class PaymentService {
     @Autowired
     private ShiftRepository shiftRepository;
 
+    @Autowired
+    private AttendanceRepository attendanceRepository;
+
+    private void validateStaffShift(UserEntity user) {
+        if ("STAFF".equalsIgnoreCase(user.getRole())) {
+            List<ShiftEntity> activeShifts = shiftRepository.filterShifts(null, "IN_PROGRESS");
+            if (activeShifts.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Hiện tại không có ca làm việc nào đang mở.");
+            }
+            boolean hasActiveShift = false;
+            for (ShiftEntity shift : activeShifts) {
+                AttendanceEntity att = attendanceRepository.findByShiftIdAndUserId(shift.getShiftId(), user.getUserId());
+                if (att != null && att.getCheckInAt() != null && att.getCheckInAt() > 0 
+                        && (att.getCheckOutAt() == null || att.getCheckOutAt() == 0)) {
+                    hasActiveShift = true;
+                    break;
+                }
+            }
+            if (!hasActiveShift) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn chỉ được thực hiện thao tác này trong ca làm việc đã điểm danh vào.");
+            }
+        }
+    }
+
     @Transactional
     public PaymentResponse processPayment(PaymentRequest request, String username) {
+        // Look up cashier user and validate active shift
+        UserEntity user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Người dùng thanh toán không tồn tại."));
+        validateStaffShift(user);
+
         // 1. Verify order exists and is CONFIRMED
         OrderEntity order = orderRepository.findById(request.getOrderId())
                 .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy đơn hàng với ID: " + request.getOrderId()));
 
-        if (!"CONFIRMED".equalsIgnoreCase(order.getStatus())) {
+        if (!"CONFIRMED".equalsIgnoreCase(order.getStatus()) && !"SERVED".equalsIgnoreCase(order.getStatus())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, 
-                    "Chỉ đơn hàng ở trạng thái CONFIRMED mới có thể thanh toán. Trạng thái hiện tại: " + order.getStatus());
+                    "Chỉ đơn hàng ở trạng thái CONFIRMED hoặc SERVED mới có thể thanh toán. Trạng thái hiện tại: " + order.getStatus());
         }
 
         // 2. Calculate subtotal from OrderItems
@@ -108,9 +139,7 @@ public class PaymentService {
 
         double change = request.getAmountReceived() - totalAmount;
 
-        // Find cashier user
-        UserEntity user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Người dùng thanh toán không tồn tại."));
+        // Find cashier user (already resolved at start of method)
 
         // 4. Insert PaymentEntity
         PaymentEntity payment = new PaymentEntity();
@@ -142,6 +171,7 @@ public class PaymentService {
 
         return new PaymentResponse(
                 savedPayment.getPaymentId(),
+                savedPayment.getOrderId(),
                 savedPayment.getSubtotal(),
                 savedPayment.getDiscountAmount(),
                 savedPayment.getFinalAmount(),
@@ -149,14 +179,63 @@ public class PaymentService {
                 user.getUserId(),
                 user.getFullName(),
                 savedPayment.getPaymentMethod(),
-                savedPayment.getPaidAt()
+                savedPayment.getPaidAt(),
+                savedPayment.getPaidShiftId()
         );
     }
 
     @Transactional(readOnly = true)
-    public PaymentEntity getPaymentByOrderId(Integer orderId) {
-        return paymentRepository.findByOrderId(orderId)
+    public List<PaymentResponse> getPaymentsInRange(Long start, Long end) {
+        List<PaymentEntity> entities = paymentRepository.findPaidInRange(start, end);
+        return entities.stream().map(p -> {
+            String cashierName = "";
+            if (p.getCashierUserId() != null) {
+                Optional<UserEntity> userOpt = userRepository.findById(p.getCashierUserId());
+                if (userOpt.isPresent()) {
+                    cashierName = userOpt.get().getFullName();
+                }
+            }
+            return new PaymentResponse(
+                    p.getPaymentId(),
+                    p.getOrderId(),
+                    p.getSubtotal(),
+                    p.getDiscountAmount(),
+                    p.getFinalAmount(),
+                    0.0,
+                    p.getCashierUserId(),
+                    cashierName,
+                    p.getPaymentMethod(),
+                    p.getPaidAt(),
+                    p.getPaidShiftId()
+            );
+        }).collect(java.util.stream.Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentResponse getPaymentByOrderId(Integer orderId) {
+        PaymentEntity p = paymentRepository.findByOrderId(orderId)
                 .orElseThrow(() -> new EntityNotFoundException("Không tìm thấy hóa đơn thanh toán cho đơn hàng ID: " + orderId));
+        
+        String cashierName = "";
+        if (p.getCashierUserId() != null) {
+            Optional<UserEntity> userOpt = userRepository.findById(p.getCashierUserId());
+            if (userOpt.isPresent()) {
+                cashierName = userOpt.get().getFullName();
+            }
+        }
+        return new PaymentResponse(
+                p.getPaymentId(),
+                p.getOrderId(),
+                p.getSubtotal(),
+                p.getDiscountAmount(),
+                p.getFinalAmount(),
+                0.0,
+                p.getCashierUserId(),
+                cashierName,
+                p.getPaymentMethod(),
+                p.getPaidAt(),
+                p.getPaidShiftId()
+        );
     }
 
     @Transactional(readOnly = true)

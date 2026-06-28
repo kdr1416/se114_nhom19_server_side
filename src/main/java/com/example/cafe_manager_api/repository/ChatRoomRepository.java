@@ -7,6 +7,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface ChatRoomRepository extends JpaRepository<ChatRoomEntity, Integer> {
     java.util.Optional<ChatRoomEntity> findByShiftId(Integer shiftId);
+    java.util.List<ChatRoomEntity> findByRoomType(String roomType);
+    java.util.Optional<ChatRoomEntity> findByRoomNameAndRoomType(String roomName, String roomType);
 
     @org.springframework.data.jpa.repository.Query("SELECT r FROM ChatRoomEntity r " +
         "JOIN ChatParticipantEntity p ON r.roomId = p.roomId " +
