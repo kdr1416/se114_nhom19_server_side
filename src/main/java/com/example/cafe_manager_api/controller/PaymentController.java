@@ -36,14 +36,6 @@ public class PaymentController {
         return ResponseEntity.ok(response);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    @GetMapping
-    public ResponseEntity<List<com.example.cafe_manager_api.dto.PaymentResponse>> getPaymentsInRange(
-            @RequestParam("startDate") Long startDate,
-            @RequestParam("endDate") Long endDate) {
-        List<com.example.cafe_manager_api.dto.PaymentResponse> payments = paymentService.getPaymentsInRange(startDate, endDate);
-        return ResponseEntity.ok(payments);
-    }
 
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @GetMapping("/revenue")

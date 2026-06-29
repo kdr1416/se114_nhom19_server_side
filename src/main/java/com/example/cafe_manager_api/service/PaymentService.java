@@ -184,32 +184,6 @@ public class PaymentService {
         );
     }
 
-    @Transactional(readOnly = true)
-    public List<PaymentResponse> getPaymentsInRange(Long start, Long end) {
-        List<PaymentEntity> entities = paymentRepository.findPaidInRange(start, end);
-        return entities.stream().map(p -> {
-            String cashierName = "";
-            if (p.getCashierUserId() != null) {
-                Optional<UserEntity> userOpt = userRepository.findById(p.getCashierUserId());
-                if (userOpt.isPresent()) {
-                    cashierName = userOpt.get().getFullName();
-                }
-            }
-            return new PaymentResponse(
-                    p.getPaymentId(),
-                    p.getOrderId(),
-                    p.getSubtotal(),
-                    p.getDiscountAmount(),
-                    p.getFinalAmount(),
-                    0.0,
-                    p.getCashierUserId(),
-                    cashierName,
-                    p.getPaymentMethod(),
-                    p.getPaidAt(),
-                    p.getPaidShiftId()
-            );
-        }).collect(java.util.stream.Collectors.toList());
-    }
 
     @Transactional(readOnly = true)
     public PaymentResponse getPaymentByOrderId(Integer orderId) {
